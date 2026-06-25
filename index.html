@@ -276,7 +276,6 @@ body{background:radial-gradient(1200px 600px at 50% -10%,#1a1a1e,#0b0b0c 60%);mi
   <div class="cp-foot">
     <div class="cp-line"><span>Items:</span><span id="cpItems">0</span></div>
     <div class="cp-total"><span>Total final:</span><span id="cpTotal">$0</span></div>
-    <div class="cp-comm"><span>🎯 Tu comisión (<span id="cpPct">10</span>%):</span><b id="cpComm">$0</b></div>
     <div class="wa-btns">
       <a class="wabtn wabtn-send" id="waSend" href="#" target="_blank" onclick="recordOrder()">📲 Enviar mi pedido</a>
       <a class="wabtn wabtn-card" id="waCard" href="#" target="_blank">💳 Consultar con tarjeta / otros medios</a>
@@ -316,6 +315,7 @@ body{background:radial-gradient(1200px 600px at 50% -10%,#1a1a1e,#0b0b0c 60%);mi
           <button class="atab" onclick="showTab('mechs')">🔧 Mecánicos</button>
           <button class="atab" onclick="showTab('comm')">💵 Comisiones</button>
           <button class="atab" onclick="showTab('prom')">🤝 Promotores</button>
+          <button class="atab" onclick="showTab('rep')">📄 Reportes</button>
           <button class="atab" onclick="showTab('config')">⚙ Config</button>
           <button class="atab" onclick="showTab('excel')">📊 Importar</button>
           <button class="atab" onclick="showTab('bulk')">📈 Aumento</button>
@@ -360,6 +360,19 @@ body{background:radial-gradient(1200px 600px at 50% -10%,#1a1a1e,#0b0b0c 60%);mi
             <thead><tr><th>Nombre</th><th>%</th><th>Link</th><th>Com. pend.</th><th></th></tr></thead>
             <tbody id="promTbody"></tbody>
           </table>
+          </div>
+        </div>
+                <div id="tab-rep" class="adm-section">
+          <p style="font-size:.8rem;color:#777;margin-bottom:12px">Generá un Excel con las ventas. Elegí cómo agruparlo y, si querés, un rango de fechas. Sirve para mandarle a cada mecánico o promotor cuánto tiene a cobrar.</p>
+          <div class="cfg-form">
+            <div class="cfg-row"><label>Agrupar por</label><select id="repGroup"><option value="mec">Mecánico</option><option value="prom">Promotor</option></select></div>
+            <div class="cfg-row"><label>Estado</label><select id="repEstado"><option value="pendiente">Solo pendientes (a cobrar)</option><option value="pagado">Solo pagados</option><option value="todos">Todos</option></select></div>
+            <div class="bulk-row">
+              <div><label style="font-size:.75rem;font-weight:700;color:#777;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:5px">Desde</label><input type="date" id="repDesde" style="padding:9px 11px;border:1.5px solid #e5e5e5;border-radius:8px;font-size:.9rem"></div>
+              <div><label style="font-size:.75rem;font-weight:700;color:#777;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:5px">Hasta</label><input type="date" id="repHasta" style="padding:9px 11px;border:1.5px solid #e5e5e5;border-radius:8px;font-size:.9rem"></div>
+            </div>
+            <button class="cfg-save" onclick="generarReporte()">⬇️ Descargar Excel</button>
+            <div id="repInfo" style="font-size:.8rem;color:#555;margin-top:6px"></div>
           </div>
         </div>
         <div id="tab-config" class="adm-section">
@@ -616,7 +629,7 @@ function renderCartItems(){
   const el=document.getElementById("cpBody");
   const entries=Object.entries(cart).filter(([,v])=>v.qty>0);
   if(!entries.length){ el.innerHTML='<div class="cp-empty"><div class="ce-icon">🛒</div><p>Tu pedido está vacío</p></div>';
-    document.getElementById("cpItems").textContent="0"; document.getElementById("cpTotal").textContent=money(0); document.getElementById("cpComm").textContent=money(0); return; }
+    document.getElementById("cpItems").textContent="0"; document.getElementById("cpTotal").textContent=money(0); return; }
   let totalItems=0;
   el.innerHTML=entries.map(([id,item])=>{
     const p=catalog.find(x=>x.id===id); if(!p)return ""; totalItems+=item.qty;
@@ -624,11 +637,9 @@ function renderCartItems(){
     const priceHtml=item.sizePrice>0?`<div class="ci-price">${money(item.sizePrice)} c/u</div>`:"";
     return `<div class="ci">${imgHtml}<div class="ci-info"><div class="ci-name">${p.brand} ${p.name}</div><div class="ci-sub">${p.subcat}</div><div class="ci-size">Cantidad: ${item.qty}</div>${priceHtml}</div><button class="ci-rm" onclick="removeCartItem('${id}')">✕</button></div>`;
   }).join("");
-  const total=cartTotal(); const pct=currentMech?mechCommissionPct(currentMech):(parseFloat(config.commissionPct)||0);
+  const total=cartTotal();
   document.getElementById("cpItems").textContent=totalItems;
   document.getElementById("cpTotal").textContent=money(total);
-  document.getElementById("cpPct").textContent=pct;
-  document.getElementById("cpComm").textContent=money(total*pct/100);
 }
 function removeCartItem(id){ delete cart[id]; updateCartCount(); reRenderCard(id); }
 function buildOrderMsg(){
@@ -637,7 +648,7 @@ function buildOrderMsg(){
   let msg="🔋 *Pedido PR Autopartes*\n\n";
   if(currentMech) msg+=`👤 Mecánico: ${currentMech.name}\n🏪 Taller: ${currentMech.taller}\n📞 ${currentMech.phone}\n\n`;
   entries.forEach(([id,item])=>{ const p=catalog.find(x=>x.id===id); if(p)msg+=`• ${p.brand} ${p.name} x${item.qty}`+(item.sizePrice>0?` — ${money(item.sizePrice*item.qty)}`:"")+"\n"; });
-  msg+=`\n💰 *Total final: ${money(total)}*\n🎯 Comisión (${pct}%): ${money(total*pct/100)}\n\n_Enviado desde el catálogo PR Autopartes_`;
+  msg+=`\n💰 *Total final: ${money(total)}*\n\n_Enviado desde el catálogo PR Autopartes_`;
   return encodeURIComponent(msg);
 }
 function buildCardMsg(){
@@ -694,7 +705,7 @@ async function showAdminPanel(){
   renderAdmTable(); renderMechTable(); loadBulkBrands(); loadConfigForm(); renderComm(); renderPromTable();
 }
 function showTab(t){
-  const tabs=["products","mechs","comm","prom","config","excel","bulk","export"];
+  const tabs=["products","mechs","comm","prom","rep","config","excel","bulk","export"];
   document.querySelectorAll(".atab").forEach((el,i)=>el.classList.toggle("on",tabs[i]===t));
   document.querySelectorAll(".adm-section").forEach(el=>el.classList.remove("on"));
   document.getElementById("tab-"+t).classList.add("on");
@@ -909,6 +920,43 @@ async function savePromPct(id,val){ const p=promotores.find(x=>x.id===id); if(p)
 async function togglePromotor(id){ const p=promotores.find(x=>x.id===id); const nv=!(p&&p.activo); await apiPost({action:"savePromotor", id:id, activo:nv}); await apiGet(true); renderPromTable(); }
 function copyPromLink(code){ const link=promBaseUrl()+"?promo="+code; if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(link).then(()=>toast("Link copiado ✅"),()=>prompt("Copiá el link:",link)); } else { prompt("Copiá el link:",link); } }
 async function liquidarProm(code,name){ if(!confirm("¿Liquidar y marcar como pagado lo de "+name+"?"))return; toast("Liquidando..."); await apiPost({action:"liquidarProm", promotor:code}); await apiGet(true); renderPromTable(); toast("Liquidado ✅"); }
+
+function fmtFecha(f){ const d=new Date(f); if(isNaN(d))return String(f||""); return d.toLocaleDateString("es-AR")+" "+d.toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit"}); }
+async function generarReporte(){
+  toast("Generando...");
+  try{ await apiGet(true); }catch(e){}
+  if(typeof XLSX==="undefined"){ alert("Necesitás conexión a internet para generar el Excel."); return; }
+  const isMec=document.getElementById("repGroup").value==="mec";
+  const estadoF=document.getElementById("repEstado").value;
+  const desde=document.getElementById("repDesde").value, hasta=document.getElementById("repHasta").value;
+  const dDesde=desde?new Date(desde+"T00:00:00"):null, dHasta=hasta?new Date(hasta+"T23:59:59"):null;
+  function inRange(f){ const d=new Date(f); if(isNaN(d))return true; if(dDesde&&d<dDesde)return false; if(dHasta&&d>dHasta)return false; return true; }
+  const rows=pedidos.filter(p=>{
+    if(!inRange(p.fecha))return false;
+    const est=isMec?String(p.estado||"").toLowerCase():String(p.estadoProm||"").toLowerCase();
+    if(estadoF!=="todos"&&est!==estadoF)return false;
+    if(!isMec&&!p.promotor)return false;
+    return true;
+  });
+  const info=document.getElementById("repInfo");
+  if(!rows.length){ info.textContent="No hay ventas con esos filtros."; toast("Sin datos"); return; }
+  const det=[["Fecha","Mecánico","Taller","Promotor","Detalle","Total","Comisión mec.","Comisión prom.","Estado mec.","Estado prom."]];
+  rows.forEach(p=>{ det.push([fmtFecha(p.fecha), p.mecanico||"", p.taller||"", promName(p.promotor), String(p.detalle||"").replace(/\n/g,"; "), Number(p.total)||0, Number(p.comision)||0, Number(p.comisionProm)||0, p.estado||"", p.estadoProm||""]); });
+  const g={};
+  rows.forEach(p=>{ const key=isMec?(p.mecanicoId||p.mecanico):(p.promotor); const name=isMec?(p.mecanico||"(sin nombre)"):promName(p.promotor); if(!g[key])g[key]={name:name,n:0,total:0,com:0}; g[key].n++; g[key].total+=Number(p.total)||0; g[key].com+=isMec?(Number(p.comision)||0):(Number(p.comisionProm)||0); });
+  const res=[[isMec?"Mecánico":"Promotor","Pedidos","Total vendido","Comisión"]];
+  const arr=Object.values(g).sort((a,b)=>b.com-a.com);
+  arr.forEach(x=>res.push([x.name,x.n,x.total,x.com]));
+  const totalCom=arr.reduce((a,x)=>a+x.com,0), totalVend=arr.reduce((a,x)=>a+x.total,0);
+  res.push(["TOTAL","",totalVend,totalCom]);
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(res), "Resumen");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(det), "Detalle");
+  const tag=isMec?"mecanicos":"promotores";
+  XLSX.writeFile(wb, "Reporte_"+tag+"_"+new Date().toLocaleDateString("es-AR").replace(/\//g,"-")+".xlsx");
+  info.innerHTML="Listo: "+rows.length+" ventas · comisión total "+money(totalCom);
+  toast("Reporte descargado ✅");
+}
 
 // INIT
 async function init(){
