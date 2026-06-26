@@ -214,6 +214,9 @@ body{background:radial-gradient(1200px 600px at 50% -10%,#1a1a1e,#0b0b0c 60%);mi
 @media(max-width:380px){.hdr-logo-img{height:22px}}
 .gate-logo-img{width:80%;max-width:270px;height:auto;display:block;margin:0 auto 12px;filter:drop-shadow(0 2px 6px #0008)}
 .toast{position:fixed;left:50%;bottom:84px;transform:translateX(-50%) translateY(20px);background:#0e0e10;border:1px solid var(--line);color:#fff;padding:11px 18px;border-radius:10px;font-size:.85rem;font-weight:700;z-index:600;opacity:0;pointer-events:none;transition:.25s;box-shadow:0 6px 20px #000a}.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+.feat-strip{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:20px;width:100%;flex-basis:100%;grid-column:1/-1}
+.feat-card{border:2px solid var(--gold)!important;box-shadow:0 0 0 1px var(--gold),0 6px 22px rgba(212,175,55,.18);position:relative;overflow:hidden}
+.feat-ribbon{background:linear-gradient(90deg,#D4AF37,#b8902f);color:#1a1a1a;font-weight:800;font-size:.58rem;letter-spacing:.5px;text-align:center;padding:5px 4px;text-transform:uppercase}
 </style>
 </head>
 <body>
@@ -332,6 +335,7 @@ body{background:radial-gradient(1200px 600px at 50% -10%,#1a1a1e,#0b0b0c 60%);mi
       <div id="admPanel" style="display:none">
         <div class="atabs">
           <button class="atab on" onclick="showTab('products')">📦 Productos</button>
+          <button class="atab" onclick="showTab('rubros')">🏷️ Rubros</button>
           <button class="atab" onclick="showTab('mechs')">👥 Usuarios</button>
           <button class="atab" onclick="showTab('comm')">💎 Beneficios PR</button>
           <button class="atab" onclick="showTab('prom')">🤝 Promotores</button>
@@ -391,6 +395,19 @@ body{background:radial-gradient(1200px 600px at 50% -10%,#1a1a1e,#0b0b0c 60%);mi
             <thead><tr><th>Fecha</th><th>Usuario</th><th>Pago</th><th>Total</th><th>Benef.</th><th></th></tr></thead>
             <tbody id="pedTbody"></tbody>
           </table>
+          </div>
+        </div>
+                <div id="tab-rubros" class="adm-section">
+          <p style="font-size:.8rem;color:#777;margin-bottom:10px">El % de Beneficio PR de cada rubro. Define cuánto gana el usuario (y el promotor) por cada venta de ese rubro. Lo podés cambiar cuando quieras.</p>
+          <div style="overflow-x:auto;max-height:380px;overflow-y:auto">
+          <table class="prod-table" id="rubrosTable">
+            <thead><tr><th>Rubro</th><th>% Beneficio PR</th></tr></thead>
+            <tbody id="rubrosTbody"></tbody>
+          </table>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:8px;align-items:flex-end">
+            <div><label style="font-size:.72rem;color:#777;display:block;margin-bottom:4px">Agregar rubro nuevo</label><input id="newRubroName" placeholder="Ej: Camping" style="padding:8px 10px;border:1px solid #ddd;border-radius:8px"></div>
+            <button class="bulk-apply" style="padding:9px 14px" onclick="addRubro()">+ Agregar</button>
           </div>
         </div>
         <div id="tab-rep" class="adm-section">
@@ -490,6 +507,13 @@ body{background:radial-gradient(1200px 600px at 50% -10%,#1a1a1e,#0b0b0c 60%);mi
         <label>Precio final (IVA incl.)</label>
         <input type="number" id="editPrice" placeholder="Ej: 165212">
       </div>
+      <div class="edit-row" style="background:rgba(212,175,55,.08);border:1px solid var(--gold);border-radius:10px;padding:12px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0"><input type="checkbox" id="editDestacado" style="width:auto;margin:0" onchange="document.getElementById('editDescWrap').style.display=this.checked?'block':'none'"> ⭐ Destacar (Promo de la semana)</label>
+        <div id="editDescWrap" style="display:none;margin-top:10px">
+          <label>% de descuento</label>
+          <input type="number" id="editDescuento" min="0" max="90" placeholder="Ej: 15">
+        </div>
+      </div>
       <button class="save-btn" onclick="saveEdit()">💾 Guardar</button>
     </div>
   </div>
@@ -514,7 +538,7 @@ const SEED=[
  {id:"prod-9",active:true,cat:"Baterías",subcat:"Plus Dynamic",brand:"VARTA",name:"VDA95MD · 12X95",desc:"Art. 65972/95",img:"",sizes:[{l:"Unidad",p:270908}]}
 ];
 
-let catalog=[], mechanics=[], pedidos=[], promotores=[], config={commissionPct:10, orderPhone:DEF_CONFIG.orderPhone};
+let catalog=[], mechanics=[], pedidos=[], promotores=[], rubros=[], config={commissionPct:10, orderPhone:DEF_CONFIG.orderPhone};
 let pendingPromo="";
 let activeCat="all", activeSub="all", cart={}, adminLoggedIn=false, currentMech=null, dataLoaded=false;
 
@@ -522,14 +546,18 @@ function getAdminPwd(){ return localStorage.getItem(ADMIN_PWD_KEY)||DEF_PWD; }
 function onlyDigits(s){ return String(s||"").replace(/\D/g,""); }
 function moneyPR(n){ return "P$R "+Math.round(Number(n)||0).toLocaleString("es-AR"); }
 function money(n){ return "$"+Math.round(n).toLocaleString("es-AR"); }
-function catIcon(c){ return {"Baterías":"🔋","Aceites":"🛢️","Lubricantes":"🛢️","Filtros":"🌀","Accesorios":"🔧","Iluminación":"💡","Frenos":"🛑"}[c]||"📦"; }
+function catIcon(c){ return {"Baterías":"🔋","Autopartes":"🚗","Repuestos":"⚙️","Camping":"⛺","Electro":"🔌","Herramientas":"🛠️","Tecnología":"📱","Aceites":"🛢️","Lubricantes":"🛢️","Filtros":"🌀","Accesorios":"🔧","Iluminación":"💡","Frenos":"🛑"}[c]||"📦"; }
 function mechCommissionPct(m){ if(m&&m.pct!=null&&m.pct!==""&&!isNaN(parseFloat(m.pct)))return parseFloat(m.pct); return parseFloat(config.commissionPct)||0; }
+function rubroPct(cat){ const r=rubros.find(x=>String(x.rubro).toLowerCase()===String(cat||"").toLowerCase()); if(r&&!isNaN(r.pct))return r.pct; return parseFloat(config.commissionPct)||0; }
+function basePrice(p){ return (p&&p.sizes&&p.sizes[0]?p.sizes[0].p:0)||0; }
+function effPrice(p){ const b=basePrice(p); if(p&&p.destacado&&p.descuento>0) return Math.round(b*(1-p.descuento/100)); return b; }
 
 let toastT=null;
 function toast(m){ const t=document.getElementById("toast"); if(!t)return; t.textContent=m; t.classList.add("on"); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove("on"),2300); }
 
 // ── MAPEO Sheets -> objetos ──
-function mapProducts(arr){ return (arr||[]).map(p=>({ id:p.id, active:!(p.activo===false||p.activo==="FALSE"||p.activo==="false"||p.activo===0), cat:p.categoria||"Otros", subcat:p.linea||"General", brand:p.marca||"", name:p.nombre||"", desc:p.descripcion||"", img:p.imagen||"", sizes:[{l:"Unidad",p:parseFloat(p.precio)||0}] })); }
+function mapProducts(arr){ return (arr||[]).map(p=>({ id:p.id, active:!(p.activo===false||p.activo==="FALSE"||p.activo==="false"||p.activo===0), cat:p.categoria||"Otros", subcat:p.linea||"General", brand:p.marca||"", name:p.nombre||"", desc:p.descripcion||"", img:p.imagen||"", sizes:[{l:"Unidad",p:parseFloat(p.precio)||0}], destacado:(p.destacado===true||p.destacado==="TRUE"||p.destacado==="true"||p.destacado==="si"||p.destacado===1), descuento:parseFloat(p.descuento)||0 })); }
+function mapRubros(arr){ return (arr||[]).map(r=>({ rubro:r.rubro||"", pct:parseFloat(r.pct)||0 })); }
 function mapMechs(arr){ return (arr||[]).map(m=>({ id:m.id, name:m.nombre||"", taller:m.taller||"", phone:String(m.telefono||""), pct:(m.pct===""||m.pct==null)?"":parseFloat(m.pct), promotor:m.promotor||"" })); }
 function mapProms(arr){ return (arr||[]).map(p=>({ id:p.id, codigo:p.codigo, nombre:p.nombre||"", telefono:String(p.telefono||""), pct:(p.pct===""||p.pct==null)?10:parseFloat(p.pct), activo:!(p.activo===false||p.activo==="FALSE"||p.activo==="false") })); }
 
@@ -539,6 +567,7 @@ async function apiGet(all){
   const r = await fetch(url, {method:"GET"});
   const data = await r.json();
   catalog = mapProducts(data.productos);
+  rubros = mapRubros(data.rubros);
   mechanics = mapMechs(data.mecanicos);
   promotores = mapProms(data.promotores);
   if(data.config){ config = {commissionPct:parseFloat(data.config.commissionPct)||10, orderPhone:String(data.config.orderPhone||DEF_CONFIG.orderPhone)}; }
@@ -619,21 +648,39 @@ function render(){
     return mc&&ms&&mq;
   });
   const grid=document.getElementById("grid");
-  if(!prods.length){ grid.innerHTML='<div class="empty"><div class="ei">🔍</div><p>Sin resultados</p><p style="font-size:.8rem;margin-top:8px">Probá el botón "Consultá tu artículo" de arriba.</p></div>'; return; }
+  const featured=getActiveCatalog().filter(p=>p.destacado);
+  const showStrip=activeCat==="all"&&activeSub==="all"&&!q&&featured.length>0;
+  if(showStrip) prods=prods.filter(p=>!p.destacado);
   let html="";
+  if(showStrip){ html+=`<div class="feat-strip">`+featured.map(featCardHTML).join("")+`</div>`; }
+  if(!prods.length && !showStrip){ grid.innerHTML='<div class="empty"><div class="ei">🔍</div><p>Sin resultados</p><p style="font-size:.8rem;margin-top:8px">Probá el botón "Consultá tu artículo" de arriba.</p></div>'; return; }
   if(activeSub==="all"&&activeCat!=="all"){
     const groups={}; prods.forEach(p=>{groups[p.subcat]=groups[p.subcat]||[];groups[p.subcat].push(p);});
     for(const [sub,items] of Object.entries(groups)) html+=`<div class="sec-hdr">${sub}</div>`+items.map(cardHTML).join("");
-  } else html=prods.map(cardHTML).join("");
+  } else html+=prods.map(cardHTML).join("");
   grid.innerHTML=html;
 }
 function cardHTML(p){
   const sizes=(p.sizes||[]); const inCart=!!cart[p.id];
   const imgHtml=p.img?`<img class="card-img" src="${p.img}" alt="${p.name}" loading="lazy">`:`<div class="card-nopic">${catIcon(p.cat)}</div>`;
-  const firstPrice=sizes[0]?.p||0;
-  const priceHtml=firstPrice>0?`<div class="size-price" id="sp-${p.id}">${money(firstPrice)}</div><div class="size-iva">IVA incluido</div>`:`<div class="size-price zero" id="sp-${p.id}">Consultar precio</div>`;
+  const firstPrice=basePrice(p); const eff=effPrice(p);
+  const priceHtml=firstPrice>0?((p.destacado&&p.descuento>0)?`<div class="size-price" id="sp-${p.id}"><span style="text-decoration:line-through;color:#888;font-size:.72rem">${money(firstPrice)}</span> ${money(eff)} <span style="color:var(--gold);font-size:.68rem">-${p.descuento}%</span></div><div class="size-iva">IVA incluido</div>`:`<div class="size-price" id="sp-${p.id}">${money(firstPrice)}</div><div class="size-iva">IVA incluido</div>`):`<div class="size-price zero" id="sp-${p.id}">Consultar precio</div>`;
   const cartCtrl=inCart?`<div class="qty-ctrl"><button class="qbtn" onclick="changeQty('${p.id}',-1)">−</button><span class="qnum">${cart[p.id].qty}</span><button class="qbtn" onclick="changeQty('${p.id}',1)">+</button></div>`:`<button class="add-btn" onclick="addCart('${p.id}')">+ Agregar</button>`;
   return `<div class="card ${inCart?"has-cart":""}" id="card-${p.id}">${imgHtml}<div class="card-body">
+    <div class="card-brand">${p.brand} · ${p.subcat}</div>
+    <div class="card-name">${p.name}</div>
+    ${p.desc?`<div class="card-desc">${p.desc}</div>`:""}
+    ${priceHtml}${cartCtrl}
+  </div></div>`;
+}
+
+function featCardHTML(p){
+  const inCart=!!cart[p.id];
+  const imgHtml=p.img?`<img class="card-img" src="${p.img}" alt="${p.name}" loading="lazy">`:`<div class="card-nopic">${catIcon(p.cat)}</div>`;
+  const base=basePrice(p), eff=effPrice(p);
+  const priceHtml=base>0?((p.descuento>0)?`<div class="size-price"><span style="text-decoration:line-through;color:#888;font-size:.78rem">${money(base)}</span> <b>${money(eff)}</b> <span style="color:var(--gold)">-${p.descuento}%</span></div><div class="size-iva">IVA incluido</div>`:`<div class="size-price">${money(base)}</div><div class="size-iva">IVA incluido</div>`):`<div class="size-price zero">Consultar precio</div>`;
+  const cartCtrl=inCart?`<div class="qty-ctrl"><button class="qbtn" onclick="changeQty('${p.id}',-1)">−</button><span class="qnum">${cart[p.id].qty}</span><button class="qbtn" onclick="changeQty('${p.id}',1)">+</button></div>`:`<button class="add-btn" onclick="addCart('${p.id}')">+ Agregar</button>`;
+  return `<div class="card feat-card ${inCart?"has-cart":""}" id="card-${p.id}"><div class="feat-ribbon">⭐ DESTACADO PR DE LA SEMANA</div>${imgHtml}<div class="card-body">
     <div class="card-brand">${p.brand} · ${p.subcat}</div>
     <div class="card-name">${p.name}</div>
     ${p.desc?`<div class="card-desc">${p.desc}</div>`:""}
@@ -645,11 +692,11 @@ function cardHTML(p){
 function addCart(pid){
   const p=catalog.find(x=>x.id===pid); if(!p)return;
   const sz=p.sizes[0]||{l:"Unidad",p:0};
-  cart[pid]={qty:1,sizeIdx:0,sizeLabel:sz.l,sizePrice:sz.p};
+  cart[pid]={qty:1,sizeIdx:0,sizeLabel:sz.l,sizePrice:effPrice(p)};
   updateCartCount(); reRenderCard(pid);
 }
 function changeQty(pid,d){ if(!cart[pid])return; cart[pid].qty=Math.max(0,cart[pid].qty+d); if(!cart[pid].qty)delete cart[pid]; updateCartCount(); reRenderCard(pid); }
-function reRenderCard(pid){ const card=document.getElementById("card-"+pid); if(!card)return; const p=catalog.find(x=>x.id===pid); if(!p)return; const t=document.createElement("div"); t.innerHTML=cardHTML(p); card.replaceWith(t.firstElementChild); }
+function reRenderCard(pid){ const card=document.getElementById("card-"+pid); if(!card)return; const p=catalog.find(x=>x.id===pid); if(!p)return; const t=document.createElement("div"); t.innerHTML=(p.destacado?featCardHTML(p):cardHTML(p)); card.replaceWith(t.firstElementChild); }
 function cartTotal(){ return Object.entries(cart).filter(([,v])=>v.qty>0).reduce((a,[,v])=>a+(v.sizePrice||0)*v.qty,0); }
 function updateCartCount(){
   const total=Object.values(cart).reduce((a,b)=>a+b.qty,0);
@@ -701,13 +748,15 @@ function updateWALinks(){
 function recordOrder(){
   const entries=Object.entries(cart).filter(([,v])=>v.qty>0);
   if(!entries.length) return true;
-  const total=cartTotal(); const pct=currentMech?mechCommissionPct(currentMech):(parseFloat(config.commissionPct)||0);
+  const total=cartTotal();
   const detalle=entries.map(([id,item])=>{const p=catalog.find(x=>x.id===id); return p?("• "+p.brand+" "+p.name+" x"+item.qty+(item.sizePrice>0?(" — "+money(item.sizePrice*item.qty)):"")):"";}).filter(Boolean).join("\n");
+  let beneficio=0;
+  entries.forEach(([id,item])=>{ const p=catalog.find(x=>x.id===id); if(!p)return; beneficio+=(item.sizePrice||0)*item.qty*rubroPct(p.cat)/100; });
+  beneficio=Math.round(beneficio);
+  const pctBlend=total>0?Math.round(beneficio/total*100):0;
   const promCode=currentMech?currentMech.promotor:"";
-  const promObj=promCode?promotores.find(x=>String(x.codigo)===String(promCode)):null;
-  const promPct=promObj?(parseFloat(promObj.pct)||0):0;
-  const comisionProm=promCode?Math.round(total*promPct/100):0;
-  apiPost({action:"saveOrder", mecanicoId:currentMech?currentMech.id:"", mecanico:currentMech?currentMech.name:"", taller:currentMech?currentMech.taller:"", telefono:currentMech?currentMech.phone:"", detalle:detalle, total:total, pct:pct, comision:Math.round(total*pct/100), promotor:promCode, comisionProm:comisionProm, pago:(document.getElementById("payMethod")||{}).value||"A coordinar"});
+  const comisionProm=promCode?beneficio:0;
+  apiPost({action:"saveOrder", mecanicoId:currentMech?currentMech.id:"", mecanico:currentMech?currentMech.name:"", taller:currentMech?currentMech.taller:"", telefono:currentMech?currentMech.phone:"", detalle:detalle, total:total, pct:pctBlend, comision:beneficio, promotor:promCode, comisionProm:comisionProm, pago:(document.getElementById("payMethod")||{}).value||"A coordinar"});
   setTimeout(()=>{ cart={}; updateCartCount(); closeCart(); toast("Pedido registrado ✅"); }, 400);
   return true;
 }
@@ -735,16 +784,17 @@ async function showAdminPanel(){
   document.getElementById("admLogin").style.display="none";
   document.getElementById("admPanel").style.display="block";
   try{ await apiGet(true); }catch(e){}
-  renderAdmTable(); renderMechTable(); loadBulkBrands(); loadConfigForm(); renderComm(); renderPromTable(); renderPedidos();
+  renderAdmTable(); renderMechTable(); loadBulkBrands(); loadConfigForm(); renderComm(); renderPromTable(); renderPedidos(); renderRubros();
 }
 function showTab(t){
-  const tabs=["products","mechs","comm","prom","ped","rep","config","excel","bulk","export"];
+  const tabs=["products","rubros","mechs","comm","prom","ped","rep","config","excel","bulk","export"];
   document.querySelectorAll(".atab").forEach((el,i)=>el.classList.toggle("on",tabs[i]===t));
   document.querySelectorAll(".adm-section").forEach(el=>el.classList.remove("on"));
   document.getElementById("tab-"+t).classList.add("on");
   if(t==="comm") renderComm();
   if(t==="prom") renderPromTable();
   if(t==="ped") renderPedidos();
+  if(t==="rubros") renderRubros();
 }
 
 // Productos
@@ -825,7 +875,7 @@ async function applyBulk(){
 // Alta / edición de producto
 let editImgData=null;
 function fillDatalists(){
-  document.getElementById("dlCat").innerHTML=[...new Set(catalog.map(p=>p.cat))].map(v=>`<option value="${v}">`).join("");
+  document.getElementById("dlCat").innerHTML=[...new Set([...rubros.map(r=>r.rubro),...catalog.map(p=>p.cat)])].filter(Boolean).map(v=>`<option value="${v}">`).join("");
   document.getElementById("dlSubcat").innerHTML=[...new Set(catalog.map(p=>p.subcat))].map(v=>`<option value="${v}">`).join("");
   document.getElementById("dlBrand").innerHTML=[...new Set(catalog.map(p=>p.brand))].map(v=>`<option value="${v}">`).join("");
 }
@@ -836,6 +886,7 @@ function openNew(){
   ["editName","editDesc"].forEach(id=>document.getElementById(id).value="");
   document.getElementById("editCat").value="Baterías"; document.getElementById("editSubcat").value=""; document.getElementById("editBrand").value="";
   document.getElementById("editPrice").value="";
+  document.getElementById("editDestacado").checked=false; document.getElementById("editDescuento").value=""; document.getElementById("editDescWrap").style.display="none";
   editImgData=null; document.getElementById("editImgPreview").style.display="none"; document.getElementById("editImgText").style.display="block";
   document.getElementById("editModal").classList.add("on");
 }
@@ -848,6 +899,9 @@ function openEdit(id){
   document.getElementById("editCat").value=p.cat||""; document.getElementById("editSubcat").value=p.subcat||""; document.getElementById("editBrand").value=p.brand||"";
   document.getElementById("editDesc").value=p.desc||"";
   document.getElementById("editPrice").value=p.sizes?.[0]?.p||0;
+  document.getElementById("editDestacado").checked=!!p.destacado;
+  document.getElementById("editDescuento").value=p.descuento||0;
+  document.getElementById("editDescWrap").style.display=p.destacado?"block":"none";
   editImgData=null;
   const prev=document.getElementById("editImgPreview");
   if(p.img){prev.src=p.img;prev.style.display="block";document.getElementById("editImgText").style.display="none";}
@@ -872,7 +926,9 @@ async function saveEdit(){
     nombre:name, descripcion:document.getElementById("editDesc").value.trim(),
     precio:Math.round(parseFloat(document.getElementById("editPrice").value)||0),
     activo: ex?ex.active!==false:true,
-    imagen: editImgData!=null?editImgData:(ex?ex.img:"")
+    imagen: editImgData!=null?editImgData:(ex?ex.img:""),
+    destacado: document.getElementById("editDestacado").checked,
+    descuento: Math.round(parseFloat(document.getElementById("editDescuento").value)||0)
   };
   if(id) prod.id=id;
   toast("Guardando..."); await apiPost({action:"upsertProduct", producto:prod}); await apiGet(true);
@@ -1038,6 +1094,29 @@ async function deletePedido(id,name){
   await apiGet(true);
   renderPedidos(); renderComm(); renderPromTable();
   toast("Venta borrada ✅");
+}
+
+function renderRubros(){
+  const tb=document.getElementById("rubrosTbody"); if(!tb)return;
+  const names=[...new Set([...rubros.map(r=>r.rubro),...catalog.map(p=>p.cat)])].filter(Boolean);
+  if(!names.length){ tb.innerHTML='<tr><td colspan="2" style="text-align:center;color:#999;padding:16px">No hay rubros.</td></tr>'; return; }
+  tb.innerHTML=names.map(n=>{
+    const r=rubros.find(x=>String(x.rubro).toLowerCase()===String(n).toLowerCase());
+    const pct=r?r.pct:(parseFloat(config.commissionPct)||0);
+    return `<tr><td><strong>${n}</strong></td><td><input class="mini-input" type="number" min="0" max="100" step="0.5" value="${pct}" onchange="saveRubroPct('${String(n).replace(/'/g,"")}',this.value)"> %</td></tr>`;
+  }).join("");
+}
+async function saveRubroPct(name,val){
+  const r=rubros.find(x=>String(x.rubro).toLowerCase()===String(name).toLowerCase());
+  if(r) r.pct=parseFloat(val)||0; else rubros.push({rubro:name,pct:parseFloat(val)||0});
+  await apiPost({action:"saveRubro", rubro:name, pct:val}); toast("Guardado ✅");
+}
+async function addRubro(){
+  const el=document.getElementById("newRubroName"); const name=(el.value||"").trim();
+  if(!name){ alert("Escribí el nombre del rubro."); return; }
+  toast("Agregando...");
+  await apiPost({action:"saveRubro", rubro:name, pct:parseFloat(config.commissionPct)||10});
+  el.value=""; await apiGet(true); renderRubros(); toast("Rubro agregado ✅");
 }
 
 // INIT
