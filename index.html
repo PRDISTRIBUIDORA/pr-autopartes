@@ -521,7 +521,7 @@ body{background:radial-gradient(1200px 600px at 50% -10%,#1a1a1e,#0b0b0c 60%);mi
 
 <script>
 // ── CONEXIÓN A GOOGLE SHEETS ──
-const SHEETS_URL = "https://script.google.com/macros/s/AKfycbyB3wnwbN50DZeQ9DFK7DT7aGy9NlrJNo9MSE53Gv2jNokEcksaPsLKnhpT8ABAT0TRyQ/exec";
+const SHEETS_URL = "https://script.google.com/macros/s/AKfycbzTabyuv_dBGGh0t6TncAJ_3CNlSjYBvOwAPrs2Z4Wo71HpTLkqv5zY8a_P3AX-y1JbrQ/exec";
 const ADMIN_PWD_KEY="pra_admin_pwd", MECH_CUR_KEY="pra_current_mech", DEF_PWD="PR2024";
 const DEF_CONFIG={commissionPct:10, orderPhone:"5493434586640"};
 
@@ -943,8 +943,10 @@ function normCell(s){ return String(s==null?"":s).toUpperCase().trim().replace(/
 function colIndex(header){
   const map={}; (header||[]).forEach((h,i)=>{ map[normCell(h)]=i; });
   const pick=(...ns)=>{ for(const n of ns){ if(map[n]!=null) return map[n]; } return -1; };
-  return { cat:pick("CATEGORIA","RUBRO"), sub:pick("LINEA","SUBCATEGORIA","SUBLINEA"), brand:pick("MARCA"),
-           name:pick("NOMBRE","ARTICULO","PRODUCTO"), desc:pick("DESCRIPCION","DETALLE"),
+  const nameReal=pick("NOMBRE","ARTICULO","PRODUCTO");
+  const descRaw=pick("DESCRIPCION","DETALLE","OBSERVACION","OBSERVACIONES");
+  return { cat:pick("CATEGORIA","RUBRO"), sub:pick("LINEA","SUBCATEGORIA","SUBLINEA","RUBRO"), brand:pick("MARCA","FABRICANTE"),
+           name: nameReal>=0?nameReal:descRaw, desc: nameReal>=0?descRaw:-1,
            price:pick("PRECIO FINAL","PRECIO","PRECIO VENTA","FINAL") };
 }
 function parsePrice(raw){ if(typeof raw==="number")return raw; let t=String(raw||"").replace(/[^0-9,.-]/g,""); if(t.indexOf(",")>-1){t=t.replace(/\./g,"").replace(",",".");} const n=parseFloat(t); return isNaN(n)?0:n; }
@@ -952,7 +954,7 @@ async function processXLRows(rows){
   const res=document.getElementById("xlResults");
   let hi=-1;
   for(let i=0;i<Math.min(rows.length,12);i++){ const c=colIndex(rows[i]); if(c.name>=0&&c.price>=0){ hi=i; break; } }
-  if(hi<0){ res.innerHTML='<span class="xl-skip">No encontré los encabezados. Usá la planilla modelo: Categoría, Línea, Marca, Nombre, Descripción, Precio final.</span>'; return; }
+  if(hi<0){ res.innerHTML='<span class="xl-skip">No encontré los encabezados. El Excel necesita al menos una columna de nombre (Descripción / Nombre) y una de precio (Precio Final / Precio).</span>'; return; }
   const col=colIndex(rows[hi]); const items=[]; const log=[]; let created=0,updated=0;
   const norm=x=>String(x||"").toUpperCase().trim().replace(/\s+/g," ");
   const existing=new Set(catalog.map(p=>norm((p.brand||"")+" "+(p.name||""))));
@@ -960,15 +962,18 @@ async function processXLRows(rows){
     const row=rows[i]; if(!row||!row.length) continue;
     const get=k=>col[k]>=0?row[col[k]]:"";
     const name=String(get("name")||"").trim(); if(!name) continue;
-    const it={categoria:String(get("cat")||"").trim()||"Otros", linea:String(get("sub")||"").trim()||"General", marca:String(get("brand")||"").trim(), nombre:name, descripcion:String(get("desc")||"").trim(), precio:Math.round(parsePrice(get("price")))};
+    let _cat=String(get("cat")||"").trim()||"Otros"; if(/^respuestos$/i.test(_cat)) _cat="Repuestos"; else if(/^bater[ií]as?$/i.test(_cat)) _cat="Baterías";
+    const it={categoria:_cat, linea:String(get("sub")||"").trim()||"General", marca:String(get("brand")||"").trim(), nombre:name, descripcion:String(get("desc")||"").trim(), precio:Math.round(parsePrice(get("price")))};
     items.push(it);
     const key=norm(it.marca+" "+it.nombre);
     if(existing.has(key)){ updated++; log.push(`<span class="xl-match">✏️ ${it.marca} ${it.nombre}: ${money(it.precio)}</span>`); }
     else { created++; existing.add(key); log.push(`<span class="xl-new">🆕 ${it.marca} ${it.nombre}: ${money(it.precio)}</span>`); }
   }
   if(!items.length){ res.innerHTML='<span class="xl-skip">No se procesó ninguna fila. Revisá la planilla.</span>'; return; }
-  res.innerHTML='<div style="font-weight:600">Subiendo a la base, esperá...</div>';
-  await apiPost({action:"bulkImport", items:items}); await apiGet(true);
+  res.innerHTML=`<div style="font-weight:600">Subiendo ${items.length} productos a la base, esperá (puede tardar hasta 20 segundos)...</div>`;
+  await apiPost({action:"bulkImport", items:items});
+  await new Promise(r=>setTimeout(r, Math.min(4000+items.length*4, 20000)));
+  await apiGet(true);
   renderCatBtns(); renderSubcatBtns(); render(); renderAdmTable(); loadBulkBrands();
   res.innerHTML=`<div style="margin-bottom:8px;font-weight:600">📊 <span class="xl-new">${created} nuevos</span> · <span class="xl-match">${updated} actualizados</span></div><div style="max-height:220px;overflow-y:auto;border:1px solid #eee;border-radius:6px;padding:8px;font-size:.75rem">${log.join("<br>")}</div>`;
   toast("Importado ✅");
