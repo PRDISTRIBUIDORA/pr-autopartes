@@ -564,8 +564,12 @@ function mapProms(arr){ return (arr||[]).map(p=>({ id:p.id, codigo:p.codigo, nom
 // ── API ──
 async function apiGet(all){
   const url = SHEETS_URL + (all?"?what=all":"");
-  const r = await fetch(url, {method:"GET"});
-  const data = await r.json();
+  let data=null, lastErr=null;
+  for(let attempt=0; attempt<3; attempt++){
+    try{ const r = await fetch(url, {method:"GET", cache:"no-store"}); data = await r.json(); break; }
+    catch(e){ lastErr=e; await new Promise(rs=>setTimeout(rs, 1200)); }
+  }
+  if(!data) throw (lastErr||new Error("sin datos"));
   catalog = mapProducts(data.productos);
   rubros = mapRubros(data.rubros);
   mechanics = mapMechs(data.mecanicos);
@@ -586,12 +590,12 @@ function initGate(){
   if(sp){ const m=mechanics.find(x=>onlyDigits(x.phone)===onlyDigits(sp)); if(m){ currentMech=m; hideGate(); return; } }
   document.getElementById("gate").classList.remove("hidden");
 }
-function gateContinue(){
+async function gateContinue(){
   const phone=onlyDigits(document.getElementById("gatePhone").value);
   const err=document.getElementById("gateErr"); err.textContent="";
-  if(!dataLoaded){ err.textContent="Conectando... esperá un segundo y reintentá."; return; }
   if(phone.length<6){ err.textContent="Ingresá un teléfono válido."; return; }
-  const m=mechanics.find(x=>onlyDigits(x.phone)===phone);
+  let m=mechanics.find(x=>onlyDigits(x.phone)===phone);
+  if(!m){ err.textContent="Buscando tu cuenta..."; try{ await apiGet(false); }catch(e){} m=mechanics.find(x=>onlyDigits(x.phone)===phone); err.textContent=""; }
   if(m){ currentMech=m; localStorage.setItem(MECH_CUR_KEY,phone); hideGate(); }
   else { document.getElementById("gateReg").classList.add("on"); document.getElementById("gateName").focus(); }
 }
@@ -654,10 +658,13 @@ function render(){
   let html="";
   if(showStrip){ html+=`<div class="feat-strip">`+featured.map(featCardHTML).join("")+`</div>`; }
   if(!prods.length && !showStrip){ grid.innerHTML='<div class="empty"><div class="ei">🔍</div><p>Sin resultados</p><p style="font-size:.8rem;margin-top:8px">Probá el botón "Consultá tu artículo" de arriba.</p></div>'; return; }
+  const CAP=120; let extra=0;
+  if(prods.length>CAP){ extra=prods.length-CAP; prods=prods.slice(0,CAP); }
   if(activeSub==="all"&&activeCat!=="all"){
     const groups={}; prods.forEach(p=>{groups[p.subcat]=groups[p.subcat]||[];groups[p.subcat].push(p);});
     for(const [sub,items] of Object.entries(groups)) html+=`<div class="sec-hdr">${sub}</div>`+items.map(cardHTML).join("");
   } else html+=prods.map(cardHTML).join("");
+  if(extra>0){ html+=`<div style="grid-column:1/-1;text-align:center;color:#999;padding:18px;font-size:.85rem">Mostrando ${CAP} productos. Hay <b>${extra}</b> más — usá el 🔍 buscador o elegí un rubro para afinar.</div>`; }
   grid.innerHTML=html;
 }
 function cardHTML(p){
@@ -814,7 +821,9 @@ function renderAdmTable(){
       <td><button class="toggle-btn" onclick="toggleProduct('${p.id}')">${active?"Baja":"Activar"}</button><button class="edit-btn" onclick="openEdit('${p.id}')">✏️</button></td></tr>`;
   }).join("");
 }
-async function toggleProduct(id){ toast("Guardando..."); await apiPost({action:"toggleProduct", id:id}); await apiGet(true); renderAdmTable(); render(); toast("Listo ✅"); }
+async function toggleProduct(id){ const p=catalog.find(x=>x.id===id); if(p)p.active=!p.active; renderAdmTable(); render(); toast("Listo ✅");
+  await apiPost({action:"toggleProduct", id:id});
+  setTimeout(async()=>{ try{ await apiGet(true); renderAdmTable(); render(); }catch(e){} }, 3000); }
 
 // Usuarios
 function renderMechTable(){
@@ -825,7 +834,10 @@ function renderMechTable(){
   tbody.innerHTML=list.map(m=>`<tr><td><strong style="font-size:.8rem">${m.name}</strong></td><td style="font-size:.78rem">${m.taller||"—"}</td><td style="font-size:.78rem">${m.phone||"—"}</td><td style="font-size:.74rem">${promName(m.promotor)}</td><td><input class="mini-input" type="number" min="0" max="100" step="0.5" value="${m.pct!==""&&m.pct!=null?m.pct:""}" placeholder="${config.commissionPct}" onchange="setMechPct('${m.id}',this.value)"></td><td><button class="toggle-btn" onclick="delMech('${m.id}')">🗑️</button></td></tr>`).join("");
 }
 async function setMechPct(id,val){ const m=mechanics.find(x=>x.id===id); if(m)m.pct=val===""?"":parseFloat(val); await apiPost({action:"setMechPct", id:id, pct:val}); if(currentMech&&currentMech.id===id){currentMech=m;renderCartItems();} toast("Guardado ✅"); }
-async function delMech(id){ if(!confirm("¿Borrar este mecánico?"))return; await apiPost({action:"deleteMech", id:id}); await apiGet(true); renderMechTable(); toast("Borrado"); }
+async function delMech(id){ if(!confirm("¿Borrar este usuario?"))return;
+  mechanics=mechanics.filter(x=>x.id!==id); renderMechTable(); toast("Borrado ✅");
+  await apiPost({action:"deleteMech", id:id});
+  setTimeout(async()=>{ try{ await apiGet(true); renderMechTable(); }catch(e){} }, 3000); }
 
 // Beneficios PR
 function renderComm(){
@@ -846,7 +858,10 @@ function renderComm(){
 }
 async function liquidar(id,name){
   if(!confirm("¿Liquidar y marcar como pagado lo pendiente de "+name+"?")) return;
-  toast("Liquidando..."); await apiPost({action:"liquidar", mecanicoId:id}); await apiGet(true); renderComm(); toast("Liquidado ✅");
+  pedidos.forEach(p=>{ if(String(p.mecanicoId)===String(id) && String(p.cobrado).toLowerCase()==="si" && String(p.estado).toLowerCase()==="pendiente") p.estado="pagado"; });
+  renderComm(); toast("Liquidado ✅");
+  await apiPost({action:"liquidar", mecanicoId:id});
+  setTimeout(async()=>{ try{ await apiGet(true); renderComm(); }catch(e){} }, 3000);
 }
 
 // Config
@@ -970,9 +985,15 @@ async function processXLRows(rows){
     else { created++; existing.add(key); log.push(`<span class="xl-new">🆕 ${it.marca} ${it.nombre}: ${money(it.precio)}</span>`); }
   }
   if(!items.length){ res.innerHTML='<span class="xl-skip">No se procesó ninguna fila. Revisá la planilla.</span>'; return; }
-  res.innerHTML=`<div style="font-weight:600">Subiendo ${items.length} productos a la base, esperá (puede tardar hasta 20 segundos)...</div>`;
-  await apiPost({action:"bulkImport", items:items});
-  await new Promise(r=>setTimeout(r, Math.min(4000+items.length*4, 20000)));
+  const CHUNK=250; const totalLotes=Math.ceil(items.length/CHUNK);
+  for(let i=0;i<items.length;i+=CHUNK){
+    const lote=items.slice(i,i+CHUNK); const nLote=Math.floor(i/CHUNK)+1;
+    res.innerHTML=`<div style="font-weight:600">⏳ Subiendo lote ${nLote} de ${totalLotes}<br><span style="font-size:.8rem;color:#888">${items.length} productos en total · NO cierres esta ventana</span></div>`;
+    await apiPost({action:"bulkImport", items:lote});
+    await new Promise(r=>setTimeout(r, 5000));
+  }
+  res.innerHTML=`<div style="font-weight:600">Casi listo, actualizando el catálogo...</div>`;
+  await new Promise(r=>setTimeout(r, 3000));
   await apiGet(true);
   renderCatBtns(); renderSubcatBtns(); render(); renderAdmTable(); loadBulkBrands();
   res.innerHTML=`<div style="margin-bottom:8px;font-weight:600">📊 <span class="xl-new">${created} nuevos</span> · <span class="xl-match">${updated} actualizados</span></div><div style="max-height:220px;overflow-y:auto;border:1px solid #eee;border-radius:6px;padding:8px;font-size:.75rem">${log.join("<br>")}</div>`;
@@ -1012,9 +1033,15 @@ function renderPromTable(){
 }
 async function savePromName(id,val){ const p=promotores.find(x=>x.id===id); if(p)p.nombre=val; await apiPost({action:"savePromotor", id:id, nombre:val}); toast("Guardado ✅"); }
 async function savePromPct(id,val){ const p=promotores.find(x=>x.id===id); if(p)p.pct=parseFloat(val)||0; await apiPost({action:"savePromotor", id:id, pct:val}); toast("Guardado ✅"); }
-async function togglePromotor(id){ const p=promotores.find(x=>x.id===id); const nv=!(p&&p.activo); await apiPost({action:"savePromotor", id:id, activo:nv}); await apiGet(true); renderPromTable(); }
+async function togglePromotor(id){ const p=promotores.find(x=>x.id===id); const nv=!(p&&p.activo); if(p)p.activo=nv; renderPromTable();
+  await apiPost({action:"savePromotor", id:id, activo:nv});
+  setTimeout(async()=>{ try{ await apiGet(true); renderPromTable(); }catch(e){} }, 3000); }
 function copyPromLink(code){ const link=promBaseUrl()+"?promo="+code; if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(link).then(()=>toast("Link copiado ✅"),()=>prompt("Copiá el link:",link)); } else { prompt("Copiá el link:",link); } }
-async function liquidarProm(code,name){ if(!confirm("¿Liquidar y marcar como pagado lo de "+name+"?"))return; toast("Liquidando..."); await apiPost({action:"liquidarProm", promotor:code}); await apiGet(true); renderPromTable(); toast("Liquidado ✅"); }
+async function liquidarProm(code,name){ if(!confirm("¿Liquidar y marcar como pagado lo de "+name+"?"))return;
+  pedidos.forEach(p=>{ if(String(p.promotor)===String(code) && String(p.cobrado).toLowerCase()==="si" && String(p.estadoProm).toLowerCase()==="pendiente") p.estadoProm="pagado"; });
+  renderPromTable(); toast("Liquidado ✅");
+  await apiPost({action:"liquidarProm", promotor:code});
+  setTimeout(async()=>{ try{ await apiGet(true); renderPromTable(); }catch(e){} }, 3000); }
 
 function fmtFecha(f){ const d=new Date(f); if(isNaN(d))return String(f||""); return d.toLocaleDateString("es-AR")+" "+d.toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit"}); }
 async function generarReporte(){
@@ -1086,19 +1113,21 @@ function renderPedidos(){
   }).join("");
 }
 async function setCobrado(id,val){
-  toast("Guardando...");
-  await apiPost({action:"setCobrado", id:id, cobrado:val});
-  await apiGet(true);
+  // 1) cambio instantáneo en pantalla (no espera la descarga de toda la base)
+  const pp=pedidos.find(x=>String(x.id)===String(id)); if(pp) pp.cobrado=val;
   renderPedidos(); renderComm(); renderPromTable();
   toast(val==="si"?"Marcado pagado ✅":"Pasado a pendiente");
+  // 2) guarda en el motor y sincroniza en segundo plano
+  await apiPost({action:"setCobrado", id:id, cobrado:val});
+  setTimeout(async()=>{ try{ await apiGet(true); renderPedidos(); renderComm(); renderPromTable(); }catch(e){} }, 3000);
 }
 async function deletePedido(id,name){
   if(!confirm("¿Borrar esta venta de "+(name||"?")+"?\nSe usa solo para errores. No se puede deshacer."))return;
-  toast("Borrando...");
-  await apiPost({action:"deleteOrder", id:id});
-  await apiGet(true);
+  pedidos=pedidos.filter(x=>String(x.id)!==String(id));
   renderPedidos(); renderComm(); renderPromTable();
   toast("Venta borrada ✅");
+  await apiPost({action:"deleteOrder", id:id});
+  setTimeout(async()=>{ try{ await apiGet(true); renderPedidos(); renderComm(); renderPromTable(); }catch(e){} }, 3000);
 }
 
 function renderRubros(){
