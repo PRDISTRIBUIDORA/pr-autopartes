@@ -946,8 +946,17 @@ async function saveEdit(){
     descuento: Math.round(parseFloat(document.getElementById("editDescuento").value)||0)
   };
   if(id) prod.id=id;
-  toast("Guardando..."); await apiPost({action:"upsertProduct", producto:prod}); await apiGet(true);
+  // actualización instantánea en pantalla
+  if(ex){
+    ex.cat=prod.categoria; ex.subcat=prod.linea; ex.brand=prod.marca; ex.name=prod.nombre;
+    ex.desc=prod.descripcion; ex.sizes=[{l:"Unidad",p:prod.precio}]; ex.img=prod.imagen;
+    ex.destacado=!!prod.destacado; ex.descuento=prod.descuento;
+  } else {
+    catalog.push({id:"tmp-"+Date.now(), active:true, cat:prod.categoria, subcat:prod.linea, brand:prod.marca, name:prod.nombre, desc:prod.descripcion, img:prod.imagen, sizes:[{l:"Unidad",p:prod.precio}], destacado:!!prod.destacado, descuento:prod.descuento});
+  }
   closeEdit(); renderCatBtns(); renderSubcatBtns(); renderAdmTable(); loadBulkBrands(); render(); toast("Guardado ✅");
+  await apiPost({action:"upsertProduct", producto:prod});
+  setTimeout(async()=>{ try{ await apiGet(true); renderCatBtns(); renderSubcatBtns(); renderAdmTable(); loadBulkBrands(); render(); }catch(e){} }, 3000);
 }
 function closeEdit(){ document.getElementById("editModal").classList.remove("on"); editImgData=null; }
 
